@@ -13,7 +13,6 @@ pub trait Autenticable {
         password: &String,
     ) -> Result<Self::Ok, Self::Err>;
 }
-
 pub struct GestorUsuarios {
     usuarios: RwLock<HashMap<String, String>>,
 }

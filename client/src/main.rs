@@ -1,4 +1,7 @@
-use std::{io, process::exit};
+use std::{
+    io::{self, Error},
+    process::exit,
+};
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 #[tokio::main]
 
@@ -13,13 +16,8 @@ async fn main() {
     };
 
     //Mandar handshake
-    let msg = "Hola Server";
-    let len = msg.len() as u8;
-    if let Err(e) = stream.write_all(&[len]).await {
-        eprintln!("Unable to send handshake: {e}");
-    }
-    if let Err(e) = stream.write_all(msg.as_bytes()).await {
-        eprintln!("Unable to send msg: {e}");
+    if let Err(e) = send_msg(&mut stream, "Hola Server".to_string()).await {
+        eprintln!("Unable to send m: {e}");
     }
 
     //Obtener nombre
@@ -38,21 +36,18 @@ async fn main() {
         .read_line(&mut password)
         .expect("Failed to read line");
 
-    let msg = "Hugo";
-    let len = msg.len() as u8;
-    if let Err(e) = stream.write_all(&[len]).await {
-        eprintln!("Unable to send handshake: {e}");
-    }
-    if let Err(e) = stream.write_all(msg.as_bytes()).await {
-        eprintln!("Unable to send msg: {e}");
+    if let Err(e) = send_msg(&mut stream, nombre).await {
+        eprintln!("Unable to send data: {e}");
     }
 
-    let msg = "1234";
+    if let Err(e) = send_msg(&mut stream, password).await {
+        eprintln!("Unable to send data: {e}");
+    }
+}
+
+async fn send_msg(stream: &mut TcpStream, msg: String) -> Result<String, Error> {
     let len = msg.len() as u8;
-    if let Err(e) = stream.write_all(&[len]).await {
-        eprintln!("Unable to send handshake: {e}");
-    }
-    if let Err(e) = stream.write_all(msg.as_bytes()).await {
-        eprintln!("Unable to send msg: {e}");
-    }
+    stream.write_all(&[len]).await?;
+    stream.write_all(msg.as_bytes()).await?;
+    Ok("Msg sended succesfully".to_string())
 }

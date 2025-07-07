@@ -51,5 +51,8 @@ async fn recibir_credenciales(socket: &mut TcpStream) -> Result<Credenciales, Er
 
     let password = String::from_utf8_lossy(&buf).to_string();
 
-    Ok(Credenciales::new(nombre, password))
+    Ok(Credenciales::new(
+        nombre.trim().to_string(),
+        password.trim().to_string(),
+    ))
 }
