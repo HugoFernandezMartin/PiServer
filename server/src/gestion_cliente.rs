@@ -26,11 +26,11 @@ pub async fn hilo_cliente(gestor_usuarios: Arc<GestorUsuarios>, mut socket: TcpS
         .iniciar_sesion(credenciales.get_nombre(), credenciales.get_password())
         .await
     {
-        Ok(msg) => {
-            println!("{msg}");
+        Ok(()) => {
+            println!("Sesion iniciada correctamente");
         }
         Err(e) => {
-            eprintln!("Error de autenticación: {e}");
+            eprintln!("Error al iniciar sesión: {e}");
         }
     }
 }

@@ -1,22 +1,34 @@
 mod gestion_cliente;
 mod gestor_usuarios;
 use std::io::Error;
+use std::process::exit;
 use std::sync::Arc;
 
 use crate::gestion_cliente::hilo_cliente;
-use crate::gestor_usuarios::Autenticable;
 use gestor_usuarios::GestorUsuarios;
+use sqlx::sqlite::SqlitePoolOptions;
 use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 
 #[tokio::main]
 async fn main() {
     let addr = "127.0.0.1:8080";
+    let db_path = "gestor.db";
+    //Conectarse a la Base de Datos
+    let pool = match SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect(db_path)
+        .await
+    {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Unable to established connection to DB: {e}");
+            exit(1);
+        }
+    };
 
     //Inicializar gestor de usuarios
-    let mut gu = GestorUsuarios::new();
-    gu.registrar_usuario("Hugo".to_string(), "1234".to_string())
-        .await;
+    let gu = GestorUsuarios::new(pool);
     let gestor_usuarios = Arc::new(gu);
 
     //Inicializar conexion TCP
