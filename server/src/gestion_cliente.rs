@@ -2,7 +2,9 @@ use std::io::Error;
 use std::process::exit;
 use std::sync::Arc;
 
-use crate::gestor_usuarios::{Autenticable, Credenciales, GestorUsuarios};
+use crate::autenticable::Autenticable;
+use crate::credenciales::Credenciales;
+use crate::gestor_usuarios::GestorUsuarios;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 
@@ -22,10 +24,7 @@ pub async fn hilo_cliente(gestor_usuarios: Arc<GestorUsuarios>, mut socket: TcpS
     );
 
     //Intentar iniciar sesion
-    match gestor_usuarios
-        .iniciar_sesion(credenciales.get_nombre(), credenciales.get_password())
-        .await
-    {
+    match gestor_usuarios.iniciar_sesion(credenciales).await {
         Ok(()) => {
             println!("Sesion iniciada correctamente");
         }

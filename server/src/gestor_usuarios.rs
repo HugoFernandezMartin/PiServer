@@ -1,35 +1,9 @@
 use sqlx::{Pool, Sqlite};
 
-pub trait Autenticable {
-    type Ok;
-    type Err;
+use crate::{autenticable::Autenticable, credenciales::Credenciales};
 
-    async fn registrar_usuario(&self, nombre: String, password: String);
-    async fn iniciar_sesion(
-        &self,
-        nombre: &String,
-        password: &String,
-    ) -> Result<Self::Ok, Self::Err>;
-}
 pub struct GestorUsuarios {
     pool: Pool<Sqlite>,
-}
-
-pub struct Credenciales {
-    nombre: String,
-    password: String,
-}
-
-impl Credenciales {
-    pub fn new(nombre: String, password: String) -> Credenciales {
-        Credenciales { nombre, password }
-    }
-    pub fn get_nombre(&self) -> &String {
-        &self.nombre
-    }
-    pub fn get_password(&self) -> &String {
-        &self.password
-    }
 }
 
 impl GestorUsuarios {
@@ -43,9 +17,10 @@ impl Autenticable for GestorUsuarios {
     type Err = String;
     async fn registrar_usuario(&self, nombre: String, password: String) {
         if let Err(e) = sqlx::query!(
-            "INSERT INTO usuarios (nombre, password) VALUES (?, ?)",
+            "INSERT INTO usuario (nombre, password, rol) VALUES (?, ?, ?)",
             nombre,
-            password
+            password,
+            "user"
         )
         .execute(&self.pool)
         .await
@@ -56,13 +31,10 @@ impl Autenticable for GestorUsuarios {
         }
     }
 
-    async fn iniciar_sesion(
-        &self,
-        nombre: &String,
-        password: &String,
-    ) -> Result<Self::Ok, Self::Err> {
+    async fn iniciar_sesion(&self, credenciales: Credenciales) -> Result<Self::Ok, Self::Err> {
+        let nombre = credenciales.get_nombre();
         let usuario = sqlx::query!(
-            "SELECT nombre, password FROM usuarios WHERE nombre = ?",
+            "SELECT nombre, password FROM usuario WHERE nombre = ?",
             nombre
         )
         .fetch_optional(&self.pool)
@@ -70,7 +42,7 @@ impl Autenticable for GestorUsuarios {
 
         match usuario {
             Ok(Some(user)) => {
-                if &user.password == password {
+                if &user.password == credenciales.get_password() {
                     return Ok(());
                 } else {
                     return Err("Contraseña incorrecta".to_string());
