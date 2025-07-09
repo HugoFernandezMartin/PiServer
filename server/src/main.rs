@@ -10,7 +10,8 @@ use std::io::Error;
 use std::process::exit;
 use std::sync::Arc;
 
-use crate::gestion_cliente::hilo_cliente;
+use crate::debug::_ejecutar_sql;
+use crate::gestion_cliente::{hashear_password, hilo_cliente};
 use gestor_usuarios::GestorUsuarios;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Pool, Sqlite};
@@ -36,7 +37,7 @@ async fn main() {
         }
     };
 
-    //_ejecutar_sql(&pool, "esquema.sql").await.unwrap();
+    _ejecutar_sql(&pool, "esquema.sql").await.unwrap();
 
     //Solucionar bootstrap creando usuario default
     asegurar_admin(&pool).await;
@@ -106,6 +107,14 @@ async fn asegurar_admin(pool: &Pool<Sqlite>) {
         std::env::var("BOOTSTRAP_ADMIN_USER").expect("BOOTSTRAP_ADMIN_USER no está definido");
     let password =
         std::env::var("BOOTSTRAP_ADMIN_PASS").expect("BOOTSTRAP_ADMIN_PASS no está definido");
+
+    let password = match hashear_password(&password) {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("Unable to hash default password: {e}");
+            exit(1);
+        }
+    };
 
     if let Err(e) = sqlx::query!(
         "INSERT INTO usuario (nombre, password, rol)

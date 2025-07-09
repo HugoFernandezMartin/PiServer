@@ -5,9 +5,13 @@ use std::sync::Arc;
 use crate::autenticable::Autenticable;
 use crate::credenciales::Credenciales;
 use crate::gestor_usuarios::GestorUsuarios;
+
+use argon2::{
+    Argon2,
+    password_hash::{PasswordHasher, SaltString, rand_core::OsRng},
+};
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
-
 pub async fn hilo_cliente(gestor_usuarios: Arc<GestorUsuarios>, mut socket: TcpStream) {
     //Obtener credenciales
     let credenciales: Credenciales = match recibir_credenciales(&mut socket).await {
@@ -54,4 +58,19 @@ async fn recibir_credenciales(socket: &mut TcpStream) -> Result<Credenciales, Er
         nombre.trim().to_string(),
         password.trim().to_string(),
     ))
+}
+
+pub fn hashear_password(password: &String) -> Result<String, password_hash::Error> {
+    //Generate salt
+    let salt = SaltString::generate(&mut OsRng);
+
+    //Crear Argon instance
+    let argon2 = Argon2::default();
+
+    // Hash password
+    let hashed_password = argon2
+        .hash_password(password.as_bytes(), &salt)?
+        .to_string();
+
+    Ok(hashed_password)
 }
