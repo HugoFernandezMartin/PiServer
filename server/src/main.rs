@@ -1,4 +1,5 @@
 mod autenticable;
+mod certificados;
 mod credenciales;
 mod gestion_cliente;
 mod gestor_usuarios;
@@ -6,22 +7,25 @@ mod gestor_usuarios;
 //FIXME quitar
 mod debug;
 
-use std::io::Error;
 use std::process::exit;
 use std::sync::Arc;
 
+use crate::certificados::get_certs;
 use crate::debug::_ejecutar_sql;
 use crate::gestion_cliente::{hashear_password, hilo_cliente};
 use gestor_usuarios::GestorUsuarios;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Pool, Sqlite};
-use tokio::io::AsyncReadExt;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
+use tokio_rustls::TlsAcceptor;
 
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
     let addr = "127.0.0.1:8080";
+    let cert_addr = String::from("127.0.0.1");
+    let cert_filename = String::from("cert.pem");
+    let key_filename = String::from("key.pem");
     let db_path = "gestor.db";
 
     //Conectarse a la Base de Datos
@@ -42,6 +46,22 @@ async fn main() {
     //Solucionar bootstrap creando usuario default
     asegurar_admin(&pool).await;
 
+    //Cargar certificado y clave privada
+    let (cert, key) = match get_certs(&cert_filename, &key_filename, &cert_addr) {
+        Ok((c, k)) => (c, k),
+        Err(e) => {
+            eprintln!("Unable to generate cert: {e}");
+            exit(1);
+        }
+    };
+
+    let config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(vec![cert.clone()], key)
+        .unwrap();
+
+    let acceptor = TlsAcceptor::from(Arc::new(config));
+
     //Inicializar gestor de usuarios
     let gu = GestorUsuarios::new(pool);
     let gestor_usuarios = Arc::new(gu);
@@ -60,28 +80,19 @@ async fn main() {
     //Bucle lanzando un hilo cada vez que se conecta un cliente
     loop {
         match listener.accept().await {
-            Ok((mut socket, socket_addr)) => {
-                //Mandar handshake
-                match handshake(&mut socket).await {
-                    Ok(msg) => println!("{}: {}", socket_addr, msg),
-                    Err(e) => eprintln!("Unable to established connection: {e}"),
-                }
-                let _ = tokio::spawn(hilo_cliente(gestor_usuarios.clone(), socket));
+            Ok((socket, socket_addr)) => {
+                println!("Conectado cliente desde: {socket_addr}");
+                let _ = tokio::spawn(hilo_cliente(
+                    gestor_usuarios.clone(),
+                    socket,
+                    acceptor.clone(),
+                ));
             }
             Err(e) => {
                 eprintln!("Unable to connect to client: {e}");
             }
         }
     }
-}
-
-async fn handshake(socket: &mut TcpStream) -> Result<String, Error> {
-    let mut len_buf = [0u8; 1];
-    socket.read_exact(&mut len_buf).await?;
-    let len = len_buf[0] as usize;
-    let mut buf = vec![0u8; len];
-    socket.read_exact(&mut buf).await?;
-    Ok(String::from_utf8_lossy(&buf).to_string())
 }
 
 async fn asegurar_admin(pool: &Pool<Sqlite>) {

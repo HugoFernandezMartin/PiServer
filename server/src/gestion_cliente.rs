@@ -1,10 +1,9 @@
-use std::io::Error;
-use std::process::exit;
-use std::sync::Arc;
-
 use crate::autenticable::Autenticable;
 use crate::credenciales::Credenciales;
 use crate::gestor_usuarios::GestorUsuarios;
+use std::io::Error;
+use std::process::exit;
+use std::sync::Arc;
 
 use argon2::{
     Argon2,
@@ -12,9 +11,22 @@ use argon2::{
 };
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
-pub async fn hilo_cliente(gestor_usuarios: Arc<GestorUsuarios>, mut socket: TcpStream) {
+use tokio_rustls::{TlsAcceptor, server::TlsStream};
+
+pub async fn hilo_cliente(
+    gestor_usuarios: Arc<GestorUsuarios>,
+    stream: TcpStream,
+    acceptor: TlsAcceptor,
+) {
+    let mut stream = match acceptor.accept(stream).await {
+        Ok(st) => st,
+        Err(e) => {
+            eprintln!("Unable to encrypt connection: {e}");
+            exit(1);
+        }
+    };
     //Obtener credenciales
-    let credenciales: Credenciales = match recibir_credenciales(&mut socket).await {
+    let credenciales: Credenciales = match recibir_credenciales(&mut stream).await {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error al recibir los credenciales: {e}");
@@ -38,7 +50,7 @@ pub async fn hilo_cliente(gestor_usuarios: Arc<GestorUsuarios>, mut socket: TcpS
     }
 }
 
-async fn recibir_credenciales(socket: &mut TcpStream) -> Result<Credenciales, Error> {
+async fn recibir_credenciales(socket: &mut TlsStream<TcpStream>) -> Result<Credenciales, Error> {
     let mut len_buf = [0u8; 1];
     socket.read_exact(&mut len_buf).await?;
     let len = len_buf[0] as usize;
