@@ -1,72 +1,77 @@
-use std::collections::HashMap;
+use std::process::exit;
 
-use tokio::sync::RwLock;
+use argon2::{Argon2, PasswordHash, PasswordVerifier};
+use sqlx::{Pool, Sqlite};
 
-pub trait Autenticable {
-    type Ok;
-    type Err;
-
-    async fn registrar_usuario(&mut self, nombre: String, password: String);
-    async fn iniciar_sesion(
-        &self,
-        nombre: &String,
-        password: &String,
-    ) -> Result<Self::Ok, Self::Err>;
-}
+use crate::{
+    autenticable::Autenticable, credenciales::Credenciales, gestion_cliente::hashear_password,
+};
 
 pub struct GestorUsuarios {
-    usuarios: RwLock<HashMap<String, String>>,
-}
-
-pub struct Credenciales {
-    nombre: String,
-    password: String,
-}
-
-impl Credenciales {
-    pub fn new(nombre: String, password: String) -> Credenciales {
-        Credenciales { nombre, password }
-    }
-    pub fn get_nombre(&self) -> &String {
-        &self.nombre
-    }
-    pub fn get_password(&self) -> &String {
-        &self.password
-    }
+    pool: Pool<Sqlite>,
 }
 
 impl GestorUsuarios {
-    pub fn new() -> GestorUsuarios {
-        //TODO cambiar por archivo
-        Self {
-            usuarios: RwLock::new(HashMap::new()),
-        }
+    pub fn new(pool: Pool<Sqlite>) -> GestorUsuarios {
+        Self { pool }
     }
 }
 
 impl Autenticable for GestorUsuarios {
-    type Ok = String;
+    type Ok = ();
     type Err = String;
-    async fn registrar_usuario(&mut self, nombre: String, password: String) {
-        let mut mapa = self.usuarios.write().await;
-        mapa.insert(nombre, password);
+    async fn registrar_usuario(&self, nombre: String, password: String) {
+        let hashed_password = match hashear_password(&password) {
+            Ok(hashed_password) => hashed_password,
+            Err(e) => {
+                eprintln!("Unable to hash password: {e}");
+                exit(1);
+            }
+        };
+        if let Err(e) = sqlx::query!(
+            "INSERT INTO usuario (nombre, password, rol) VALUES (?, ?, ?)",
+            nombre,
+            hashed_password,
+            "user"
+        )
+        .execute(&self.pool)
+        .await
+        {
+            eprintln!("Unable to create user: {e}");
+        } else {
+            println!("User created succesfully");
+        }
     }
 
-    async fn iniciar_sesion(
-        &self,
-        nombre: &String,
-        password: &String,
-    ) -> Result<Self::Ok, Self::Err> {
-        //Mirar si existe el usuario
-        let mapa = self.usuarios.read().await;
-        if mapa.contains_key(nombre) {
-            if mapa.get(nombre).unwrap() == password {
-                return Ok("Contraseña correcta".to_string());
-            } else {
-                Err("Contraseña incorrecta".to_string())
+    async fn iniciar_sesion(&self, credenciales: Credenciales) -> Result<Self::Ok, Self::Err> {
+        let nombre = credenciales.get_nombre();
+        let usuario = sqlx::query!(
+            "SELECT nombre, password FROM usuario WHERE nombre = ?",
+            nombre
+        )
+        .fetch_optional(&self.pool)
+        .await;
+
+        match usuario {
+            Ok(Some(user)) => {
+                let parsed_hash = match PasswordHash::new(&user.password) {
+                    Ok(ph) => ph,
+                    Err(e) => return Err(format!("Unable to create passwordHash object: {}", e)),
+                };
+
+                if let Err(e) = Argon2::default()
+                    .verify_password(credenciales.get_password().as_bytes(), &parsed_hash)
+                {
+                    return Err(format!("{}", e));
+                } else {
+                    Ok(())
+                }
             }
-        } else {
-            Err("Usuario no existente".to_string())
+            Ok(None) => return Err("Usuario no existente".to_string()),
+            Err(e) => {
+                let e_msg = format!("{}", e);
+                return Err(e_msg);
+            }
         }
     }
 }

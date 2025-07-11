@@ -1,14 +1,32 @@
+use crate::autenticable::Autenticable;
+use crate::credenciales::Credenciales;
+use crate::gestor_usuarios::GestorUsuarios;
 use std::io::Error;
 use std::process::exit;
 use std::sync::Arc;
 
-use crate::gestor_usuarios::{Autenticable, Credenciales, GestorUsuarios};
+use argon2::{
+    Argon2,
+    password_hash::{PasswordHasher, SaltString, rand_core::OsRng},
+};
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
+use tokio_rustls::{TlsAcceptor, server::TlsStream};
 
-pub async fn hilo_cliente(gestor_usuarios: Arc<GestorUsuarios>, mut socket: TcpStream) {
+pub async fn hilo_cliente(
+    gestor_usuarios: Arc<GestorUsuarios>,
+    stream: TcpStream,
+    acceptor: TlsAcceptor,
+) {
+    let mut stream = match acceptor.accept(stream).await {
+        Ok(st) => st,
+        Err(e) => {
+            eprintln!("Unable to encrypt connection: {e}");
+            exit(1);
+        }
+    };
     //Obtener credenciales
-    let credenciales: Credenciales = match recibir_credenciales(&mut socket).await {
+    let credenciales: Credenciales = match recibir_credenciales(&mut stream).await {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error al recibir los credenciales: {e}");
@@ -22,20 +40,17 @@ pub async fn hilo_cliente(gestor_usuarios: Arc<GestorUsuarios>, mut socket: TcpS
     );
 
     //Intentar iniciar sesion
-    match gestor_usuarios
-        .iniciar_sesion(credenciales.get_nombre(), credenciales.get_password())
-        .await
-    {
-        Ok(msg) => {
-            println!("{msg}");
+    match gestor_usuarios.iniciar_sesion(credenciales).await {
+        Ok(()) => {
+            println!("Sesion iniciada correctamente");
         }
         Err(e) => {
-            eprintln!("Error de autenticación: {e}");
+            eprintln!("Error al iniciar sesión: {e}");
         }
     }
 }
 
-async fn recibir_credenciales(socket: &mut TcpStream) -> Result<Credenciales, Error> {
+async fn recibir_credenciales(socket: &mut TlsStream<TcpStream>) -> Result<Credenciales, Error> {
     let mut len_buf = [0u8; 1];
     socket.read_exact(&mut len_buf).await?;
     let len = len_buf[0] as usize;
@@ -51,5 +66,23 @@ async fn recibir_credenciales(socket: &mut TcpStream) -> Result<Credenciales, Er
 
     let password = String::from_utf8_lossy(&buf).to_string();
 
-    Ok(Credenciales::new(nombre, password))
+    Ok(Credenciales::new(
+        nombre.trim().to_string(),
+        password.trim().to_string(),
+    ))
+}
+
+pub fn hashear_password(password: &String) -> Result<String, password_hash::Error> {
+    //Generate salt
+    let salt = SaltString::generate(&mut OsRng);
+
+    //Crear Argon instance
+    let argon2 = Argon2::default();
+
+    // Hash password
+    let hashed_password = argon2
+        .hash_password(password.as_bytes(), &salt)?
+        .to_string();
+
+    Ok(hashed_password)
 }
